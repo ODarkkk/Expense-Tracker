@@ -13,11 +13,27 @@ public class Item {
         this.amount = amount;
     }
 
+    public void SetId(Integer id) {
+        this.id = id;
+    }
+
+    public void SetDate(String date) {
+        this.date = date;
+    }
+
+    public void SetDescription(String description) {
+        this.description = description;
+    }
+
+    public void SetAmount(Integer amount) {
+        this.amount = amount;
+    }
+
     public Integer GetId() {
         return id;
     }
 
-    public String Date() {
+    public String GetDate() {
         return date;
     }
 

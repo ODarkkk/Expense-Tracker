@@ -1,44 +1,126 @@
 import java.util.Set;
-import java.util.HashSet;
-import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.nio.file.*;
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.FileWriter;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.time.LocalDate;
+import java.time.Month;
+
 
 public class Main {
     public static final String FILE = "expenses.csv";
-    public static final String[] requiredHeaders = { "ID", "Date", "Description", "Amount" };
+    public static final String[] REQUIREDHEADERS = { "ID", "Date", "Description", "Amount" };
+    private static final Set<String> ACTIONS = Set.of("add", "delete", "update", "list", "summary");
     private static Map<Integer, Item> items = new HashMap<>();
 
     public static void main(String[] args) {
-
-        if (args.length == 0) {
-            System.out.println("No arguments provided.");
-        }
         FileVerifier();
-        Set<String> actions = Set.of("add", "delete");
+        LoadExpenses();
+        ProcessCommand(args);
+    }
 
-        if (actions.contains(args[1]) && args.length < 3) {
-            System.out.println("Insufficient arguments.");
+    public static void ProcessCommand(String[] args) {
+        if (args == null || args.length == 0) {
+            System.err.println("No command provided.");
+            return;
         }
-        if (args[0].equals("add") && args.length >= 3) {
-            for (String arg : args) {
-                if (arg.contains("--id")) {
-                    throw new IllegalArgumentException("Invalid argument");
-                }
+
+        String action = args[0].toLowerCase(); // Case-insensitive comparison
+
+        // Validate action
+        if (!ACTIONS.contains(action)) {
+            System.err.println("Invalid action.");
+            return;
+        }
+
+        try {
+            // Handle each action with appropriate argument validation
+            switch (action) {
+                case "add":
+                    if (args.length < 3) {
+                        System.out.println("Insufficient arguments for add command.");
+                        return;
+                    }
+                    ValidateNoIdArgument(args);
+                    AddExpense(ReceiveArguments(args));
+                    break;
+
+                case "delete":
+                case "update":
+                    if (args.length < 3) {
+                        System.out.println("Insufficient arguments for " + action + " command.");
+                        return;
+                    }
+                    if (action.equals("delete")) {
+                        DeleteExpense(ReceiveArguments(args));
+                    } else {
+                        UpdateExpense(ReceiveArguments(args));
+                    }
+                    break;
+
+                case "list":
+                case "summary":
+                    // These commands don't require additional arguments beyond the action
+                    if (action.equals("list")) {
+                        ListExpenses(ReceiveArguments(args));
+                    } else {
+                        ListSummary(ReceiveArguments(args));
+                    }
+                    break;
             }
-            AddExpense(ReceiveArguments(args));
+        } catch (IllegalArgumentException e) {
+            System.out.println("Error: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("An unexpected error occurred: " + e.getMessage());
         }
+    }
+
+    private static void ValidateNoIdArgument(String[] args) throws IllegalArgumentException {
+        for (String arg : args) {
+            if (arg.contains("--id")) {
+                throw new IllegalArgumentException("Invalid argument: --id is not allowed for add command");
+            }
+        }
+    }
+
+    private static void ListExpenses(Map<String, String> arguments) {
+        for (String header : REQUIREDHEADERS) {
+            System.out.print(header);
+        }
+        System.out.println();
+        for (Item item : items.values()) {
+            System.out.println(item.toString());
+        }
+    }
+
+    private static void ListSummary(Map<String, String> arguments) {
+        if (arguments.isEmpty()) {
+            ListAllSummary();
+        } else {
+            ListFilteredSummary(arguments);
+        }
+    }
+
+    private static void ListAllSummary() {
+        int expenses = 0;
+        for (Item item : items.values()) {
+            expenses += item.GetAmount();
+        }
+        System.out.println("Total expenses: $" + expenses);
+    }
+
+    private static void ListFilteredSummary(Map<String, String> arguments) {
+        int expenses = 0;
+        for (Item item : items.values()) {
+            if (item.GetDate().equals(arguments.get("month"))) {
+                expenses += item.GetAmount();
+            }
+        }
+        System.out.println(
+                "Total expenses for month " + Month.of(Integer.parseInt(arguments.get("month"))) + ": $" + expenses);
     }
 
     private static Map<String, String> ReceiveArguments(String[] args) {
@@ -69,22 +151,53 @@ public class Main {
     }
 
     private static void AddExpense(Map<String, String> arguments) {
-        // Now you can access the values like this:
-        String description = arguments.get("description");
-        String date = LocalDate.now().toString();
-        int amount = Integer.parseInt(arguments.get("amount")); // Convert to int
-
-        // Implement your expense adding logic here
-        int maxId = 0;
-        for (Integer id : items.keySet()) {
-            maxId = Math.max(maxId, id);
+        if (!arguments.containsKey("description") || !arguments.containsKey("amount")) {
+            throw new IllegalArgumentException("Missing required arguments: description and amount are required");
         }
-        // Generate a new ID (assuming you have a way to generate unique IDs
-        int id = maxId + 1;
-        Item item = new Item(id, date, description, amount);
-        items.put(id, item);
-        WriteFile(item.toString());
-        System.out.println("Expense added successfully.");
+        try {
+            // Now you can access the values like this:
+            String description = arguments.get("description");
+            String date = LocalDate.now().toString();
+            int amount = Integer.parseInt(arguments.get("amount")); // Convert to int
+            if (amount <= 0) {
+                throw new IllegalArgumentException("Amount must be positive");
+            }
+            // Implement your expense adding logic here
+            int maxId = 0;
+            for (Integer id : items.keySet()) {
+                maxId = Math.max(maxId, id);
+            }
+            // Generate a new ID
+            int id = maxId + 1;
+            Item item = new Item(id, date, description, amount);
+            items.put(id, item);
+            WriteFile(item.toString());
+            // System.out.println("Expense added successfully.");
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(e.getMessage());
+
+        }
+    }
+
+    private static void DeleteExpense(Map<String, String> arguments) {
+        String id = arguments.get("id");
+        if (GetId(Integer.parseInt(id)) != null) {
+            int idInt = Integer.parseInt(id);
+            items.remove(idInt);
+            WriteFile();
+        }
+    }
+
+    private static void UpdateExpense(Map<String, String> arguments) {
+        String id = arguments.get("id");
+        String description = arguments.get("description");
+        int amount = Integer.parseInt(arguments.get("amount")); // Convert to int
+        if (GetId(Integer.parseInt(id)) != null) {
+            int idInt = Integer.parseInt(id);
+            items.get(idInt).SetDescription(description);
+            items.get(idInt).SetAmount(amount);
+            WriteFile();
+        }
     }
 
     // Example output format:
@@ -94,7 +207,7 @@ public class Main {
     private static Item GetId(int id) {
         Item item = items.get(id);
         if (item == null) {
-            System.out.println("No item found with ID " + id);
+            System.err.println("No item found with ID " + id);
             return null;
         }
         return item;
@@ -115,7 +228,8 @@ public class Main {
                 if (line.isEmpty())
                     continue; // Skip empty lines
 
-                String[] values = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1);
+                // In LoadExpenses(), change the split pattern:
+                String[] values = line.split("\t", -1); // Use tab instead of comma
 
                 // Skip malformed lines (missing columns)
                 if (values.length < 4) {
@@ -135,6 +249,8 @@ public class Main {
                     System.err.println("Skipping line (invalid number format): " + line);
                 }
             }
+            // System.out.println(items.getClass());
+
         } catch (IOException e) {
             System.err.println("Error reading file: " + e.getMessage());
         }
@@ -156,7 +272,9 @@ public class Main {
             String firstLine = reader.readLine();
             if (firstLine == null) {
                 // Empty file
-                WriteFile(requiredHeaders.toString());
+                for (String header : REQUIREDHEADERS) {
+                    WriteFile(header);
+                }
             }
         } catch (IOException e) {
             System.err.println("Error reading file: " + e.getMessage());
@@ -166,9 +284,28 @@ public class Main {
 
     public static void WriteFile(String line) {
         try (FileWriter writer = new FileWriter(FILE, true)) { // 'true' enables appending
-            writer.write(line + "\n");
+            writer.write(line + "\t");
         } catch (IOException e) {
             System.out.println("Error writing to file: " + e.getMessage());
+        }
+    }
+
+    public static void WriteFile() {
+        try (FileWriter writer = new FileWriter(FILE)) {
+            // Write Header
+            for (String header : REQUIREDHEADERS) {
+                writer.write(header + "\t");
+            }
+
+            // Write all items
+            for (Item item : items.values()) {
+                writer.write(item.GetId() + "\t" +
+                        item.GetDate() + "\t" +
+                        item.GetDescription() + "\t" +
+                        item.GetAmount() + "\n");
+            }
+        } catch (IOException e) {
+            System.err.println("Error writing to file: " + e.getMessage());
         }
     }
 }
